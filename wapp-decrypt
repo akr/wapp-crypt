@@ -1,0 +1,86 @@
+#!/usr/bin/ruby
+
+# usage:
+#   echo password | wapp-decrypt input [output]
+#
+# supported format:
+#   pdf
+#   doc (MS Word)
+#   xls (MS Excel)
+
+require 'win32ole'
+require 'fileutils'
+
+def getAbsolutePath filename
+  fso = WIN32OLE.new('Scripting.FileSystemObject')
+  return fso.GetAbsolutePathName(filename)
+end
+
+def main
+  ifn, ofn = ARGV
+  password = STDIN.read.chomp
+
+  ifn = getAbsolutePath(ifn)
+  ofn = getAbsolutePath(ofn) if ofn
+  
+  case ifn
+  when /\.pdf\z/ then pdf_decrypt(ifn, ofn, password)
+  when /\.xls\z/ then excel_decrypt(ifn, ofn, password)
+  when /\.doc\z/ then word_decrypt(ifn, ofn, password)
+  else raise ArgumentError, "unexpected extension: #{ifn}"
+  end
+end
+
+def pdf_decrypt(ifn, ofn, password)
+  ofn ||= ifn
+  tf_src = "ztmp.#$$.src.pdf"
+  tf_dst = "ztmp.#$$.dst.pdf"
+  FileUtils.cp ifn, tf_src
+  args = ["pdftk", tf_src, "input_pw", password, "output", tf_dst]
+  system *args
+  File.rename tf_dst, ofn
+  File.delete tf_src
+ensure
+  File.delete tf_src if File.exist? tf_src
+  File.delete tf_dst if File.exist? tf_dst
+end
+
+def excel_decrypt(ifn, ofn, password)
+  app = WIN32OLE.new('Excel.Application')
+  begin
+    book = app.Workbooks.Open(ifn, "Password"=>password)
+    begin
+      book.Password = ''
+      if ofn
+	book.SaveAs('Filename'=>ofn)
+      else
+	book.Save
+      end
+    ensure
+      book.Close
+    end
+  ensure
+    app.Quit
+  end
+end
+
+def word_decrypt(ifn, ofn, password)
+  word = WIN32OLE.new('Word.Application')
+  begin
+    doc = word.Documents.Open(ifn, "PasswordDocument"=>password)
+    begin
+      doc.Password = ''
+      if ofn
+	doc.SaveAs('Filename'=>ofn)
+      else
+	doc.Save
+      end
+    ensure
+      doc.Close
+    end
+  ensure
+    word.Quit
+  end
+end
+
+main
